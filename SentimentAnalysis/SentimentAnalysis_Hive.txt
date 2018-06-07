@@ -1,0 +1,211 @@
+--Hive Sentiment Analysis
+
+--Step 1: Place the tweets file in /user/rsb503/SentimentAnalysis/ 
+--Step2: Place the Data dictionary in this folder : /user/rsb503/DataDictionary/
+
+--Step3: Run the below queries step by step: 
+
+-- Query 1:
+ create external table Tweets (date_ string, id string, id_str string, tweet string)
+ row format delimited fields terminated by ','
+ location '/user/rsb503/SentimentAnalysis/';
+
+-- Query 2: 
+ --Create table for DataDictionary
+create external table DataDictionary (Word String , Sentiment int)
+ row format delimited fields terminated by ','
+ location '/user/rsb503/DataDictionary/';
+ 
+
+ 
+-- Query 3: 
+--Below query is to split the words present in a tweet and also get the count of individual words
+select tweet_split , count_ , sentiment from
+(SELECT id, tweet_split, count(*) count_
+FROM Tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY id, tweet_split) a , DataDictionary D
+where D.word = a.tweet_split;
+
+Result:
++--------------+---------+------------+--+
+| tweet_split  | count_  | sentiment  |
++--------------+---------+------------+--+
+|              | 7       | NULL       |
+| allow        | 1       | 1          |
+| bias         | 1       | -1         |
+| drop         | 1       | -1         |
+| grant        | 1       | 1          |
+| hate         | 1       | -3         |
+| help         | 1       | 2          |
+| lawsuit      | 1       | -2         |
+| love         | 1       | 3          |
++--------------+---------+------------+--+
+
+
+-- Query 4: 
+--Below query is to obtain the overall sentiment for each word
+select tweet_split , (count_ * sentiment) overall_sent from (
+select tweet_split , count_ , sentiment from
+(SELECT id, tweet_split, count(*) count_
+FROM Tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY id, tweet_split) a , DataDictionary D
+where D.word = a.tweet_split )  senti
+
+Result:
++--------------+---------------+--+
+| tweet_split  | overall_sent  |
++--------------+---------------+--+
+|              | NULL          |
+| allow        | 1             |
+| bias         | -1            |
+| drop         | -1            |
+| grant        | 1             |
+| hate         | -3            |
+| help         | 2             |
+| lawsuit      | -2            |
+| love         | 3             |
++--------------+---------------+--+
+
+
+-- Query 4: 
+--Below query is to obtain the total sentiment of all tweets
+select sum(overall_sent) total_sentiment from (
+select tweet_split , (count_ * sentiment) overall_sent from (
+select tweet_split , count_ , sentiment from
+(SELECT id, tweet_split, count(*) count_
+FROM Tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY id, tweet_split) a , DataDictionary D
+where D.word = a.tweet_split )  senti ) s where s.overall_sent is not NULL;
+
+--Result:
++------------------+--+
+| total_sentiment  |
++------------------+--+
+| 0                |
++------------------+--+
+
+
+
+___________________________________________________________________
+------IBM csv file sentiment Analysis
+
+
+create external table Tweets (date_ string, tweet string)
+ row format delimited fields terminated by ','
+ location '/user/rsb503/SentimentAnalysis_Hive/IBM/';
+ 
+___________________________________________________________________
+--Companies List
+create external table Companies_list (Ticker_Symbol string , Security string , SEC_filings string, Sector String, Sub_sector string , Address String , added String , CIK String)
+row format delimited fields terminated by ','
+location '/user/rsb503/Stock_list';
+
+___________________________________________________________________
+--Stock History
+create external table Stock_Price_history (Date_ string , open float , high float, Low float, close float , volume float , Ticker_Symbol String)
+row format delimited fields terminated by ','
+location '/user/rsb503/StockPriceHistory';
+
+
+___________________________________________________________________
+----Energy Stocks Sentiment Analysis
+
+create external table Energy_Tweets (date_ string, tweet string, company String)
+row format delimited fields terminated by ','
+location '/user/rsb503/Energy_Tweets';
+
+select company , date_ ,ticker_symbol , sum(overall_sent) total_sentiment from (
+select date_ , company , tweet_split , ticker_symbol, (count_ * sentiment) overall_sent from 
+(select date_, company, tweet_split , ticker_symbol, count_ , sentiment from
+(SELECT date_, company, tweet_split, count(*) count_
+FROM Energy_Tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY date_, company, tweet_split)  a , DataDictionary D , Companies_list c
+where D.word = a.tweet_split
+and c.Security = a.company ) senti ) s where s.overall_sent is not NULL
+group by company , date_ , ticker_symbol ;
+
+select company , a.date_ ,a.ticker_symbol , total_sentiment , open , high , low , close from
+(select company , date_ ,ticker_symbol , sum(overall_sent) total_sentiment from (
+select date_ , company , tweet_split , ticker_symbol, (count_ * sentiment) overall_sent from 
+(select date_, company, tweet_split , ticker_symbol, count_ , sentiment from
+(SELECT date_, company, tweet_split, count(*) count_
+FROM Energy_Tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY date_, company, tweet_split)  a , DataDictionary D , Companies_list c
+where D.word = a.tweet_split
+and c.Security = a.company ) senti ) s where s.overall_sent is not NULL
+group by company , date_ , ticker_symbol ) a , Stock_Price_history b
+where a.ticker_symbol = b.ticker_symbol ;
+
+--Everything with proper date format
+__________________________________________________________________
+----Energy Stocks Sentiment Analysis
+
+--Energy_tweets
+create external table Energy_Tweets_x (date_ date, tweet string, company String)
+row format delimited fields terminated by ','
+location '/user/rsb503/Energy_Tweets';
+
+--Stock_price_history
+create external table Stock_Price_history_x (Date_ date , open float , high float, Low float, close float , volume float , Ticker_Symbol String)
+row format delimited fields terminated by ','
+location '/user/rsb503/StockPriceHistory';
+
+
+select company , a.date_ ,a.ticker_symbol , total_sentiment , open , high , low , close from
+(select company , date_ ,ticker_symbol , sum(overall_sent) total_sentiment from (
+select date_ , company , tweet_split , ticker_symbol, (count_ * sentiment) overall_sent from 
+(select date_, company, tweet_split , ticker_symbol, count_ , sentiment from
+(SELECT date_, company, tweet_split, count(*) count_
+FROM Energy_Tweets_x
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY date_, company, tweet_split)  a , DataDictionary D , Companies_list c
+where D.word = a.tweet_split
+and c.Security = a.company ) senti ) s where s.overall_sent is not NULL
+group by company , date_ , ticker_symbol ) a , Stock_Price_history_x b
+where a.ticker_symbol = b.ticker_symbol ;
+
+
+SELECT date_, company, tweet_split, count(*) count_
+FROM Energy_Tweets_x
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY date_, company, tweet_split;
+
+
+ 
+ 
+select company , date_ ,ticker_symbol , sum(overall_sent) total_sentiment from (
+select date_ , company , tweet_split , ticker_symbol, (count_ * sentiment) overall_sent from 
+(select date_, company, tweet_split , ticker_symbol, count_ , sentiment from
+(SELECT date_, company, tweet_split, count(*) count_
+FROM tweets
+LATERAL VIEW explode(split(lower(tweet), '\\W+')) t1 AS tweet_split
+GROUP BY date_, company, tweet_split)  a , DataDictionary D , Companies_list c
+where D.word = a.tweet_split
+and c.Security = a.company ) senti ) s where s.overall_sent is not NULL
+and ticker_symbol = 'INTC'
+group by company , date_ , ticker_symbol ;
+
+ 
++-------------+-----------------------------------------+-------------------+----------------+---------+------------+--+
+|    date_    |       company        |    tweet_split    | ticker_symbol  | count_  | sentiment  |
++-------------+-----------------------------------------+-------------------+----------------+---------+------------+--+
+| 2017-12-08  | Waste Management Inc | like              | WM             | 1       | 2          |
+| 2017-12-08  | Waste Management Inc | mistakes          | WM             | 1       | -2         |
+| 2017-12-08  | Waste Management Inc | safety            | WM             | 1       | 1          |
+| 2017-12-08  | Waste Management Inc | shares            | WM             | 7       | 1          |
+| 2017-12-08  | Waste Management Inc | waste             | WM             | 23      | -1         |
++-------------+-----------------------------------------+-------------------+----------------+---------+------------+--+
+|    date_    |                 company                 |    tweet_split    | ticker_symbol  | overall_sent  |
++-------------+-----------------------------------------+-------------------+----------------+---------+------------+--+
+| 2017-12-08  | Walgreens Boots Alliance                | care              | WBA            | 4             |
+| 2017-12-08  | Walgreens Boots Alliance                | increased         | WBA            | 2             |
+| 2017-12-08  | Walgreens Boots Alliance                | pay               | WBA            | -1            |
+| 2017-12-08  | Walgreens Boots Alliance                | shares            | WBA            | 7             |
+| 2017-12-08  | Walgreens Boots Alliance                | urgent            | WBA            | -2            |
+| 2017-12-08  | Walgreens Boots Alliance                | weakness          | WBA            | -6            |
+
